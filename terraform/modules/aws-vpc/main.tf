@@ -66,7 +66,7 @@ resource "aws_route" "igw_default" {
 
 resource "aws_security_group" "this" {
   name        = "${var.aws_vpc_name}-sg"
-  description = "Allow SSH, HTTP, HTTPS, ICMP inbound — all outbound"
+  description = "Allow SSH, HTTP, HTTPS, ICMP inbound - all outbound"
   vpc_id      = aws_vpc.this.id
 
   ingress {
