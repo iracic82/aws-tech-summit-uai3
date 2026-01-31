@@ -16,7 +16,7 @@ cat > /opt/web/index.html << 'HTMLEOF'
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Raj's DEMO - AWS Tech Summit</title>
+    <title>Infoblox UAI3 - AWS Tech Summit</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -101,8 +101,8 @@ cat > /opt/web/index.html << 'HTMLEOF'
 <body>
     <div class="container">
         <div class="card">
-            <h1>Welcome to Raj's DEMO</h1>
-            <p class="subtitle">AWS Tech Summit &mdash; Infoblox UAI3</p>
+            <h1>Welcome to Infoblox UAI3</h1>
+            <p class="subtitle">AWS Tech Summit &mdash; Universal Asset Insights</p>
             <div class="info-grid">
                 <div class="info-card">
                     <div class="icon">&#9729;</div>

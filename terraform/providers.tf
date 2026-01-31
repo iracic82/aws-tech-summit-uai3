@@ -22,7 +22,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project       = "RajDemo-UAI3"
+      Project       = "UAI3"
       Environment   = "Lab"
       ManagedBy     = "Terraform"
       ResourceOwner = var.resource_owner

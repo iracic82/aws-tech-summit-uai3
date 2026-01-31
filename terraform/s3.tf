@@ -1,10 +1,14 @@
-# --- S3 Bucket (conditional) ---
+# --- S3 Bucket (conditional, unique per participant) ---
+
+locals {
+  s3_bucket_name = "${var.s3_bucket_prefix}-${var.participant_id}"
+}
 
 resource "aws_s3_bucket" "this" {
   count  = var.enable_s3_bucket ? 1 : 0
-  bucket = var.s3_bucket_name
+  bucket = local.s3_bucket_name
 
-  tags = { Name = var.s3_bucket_name }
+  tags = { Name = local.s3_bucket_name }
 }
 
 resource "aws_s3_bucket_public_access_block" "this" {

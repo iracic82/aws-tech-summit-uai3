@@ -9,24 +9,24 @@ Modular Terraform for deploying multi-VPC environments with Docker web apps, Rou
 │  AWS Account  (eu-central-1)                                     │
 │                                                                  │
 │  ┌──────────────────────┐     ┌──────────────────────┐          │
-│  │  RajDemoVpc1          │     │  RajDemoVpc2          │  + VPC N│
+│  │  UAI3-Vpc1            │     │  UAI3-Vpc2            │  + VPC N│
 │  │  10.10.0.0/16         │     │  10.20.0.0/16         │         │
 │  │  ┌──────────────────┐ │     │  ┌──────────────────┐ │         │
-│  │  │  RajDemoWeb1     │ │     │  │  RajDemoWeb2     │ │         │
+│  │  │  UAI3-Web1       │ │     │  │  UAI3-Web2       │ │         │
 │  │  │  Docker + nginx  │ │     │  │  Docker + nginx  │ │         │
 │  │  │  10.10.1.10      │ │     │  │  10.20.1.10      │ │         │
 │  │  └──────────────────┘ │     │  └──────────────────┘ │         │
 │  └──────────────────────┘     └──────────────────────┘          │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────┐       │
-│  │  Route53 Private Zone: raj-demo.internal              │       │
-│  │    app1.raj-demo.internal → 10.10.1.10                │       │
-│  │    app2.raj-demo.internal → 10.20.1.10                │       │
+│  │  Route53 Private Zone: uai3.internal                  │       │
+│  │    app1.uai3.internal → 10.10.1.10                    │       │
+│  │    app2.uai3.internal → 10.20.1.10                    │       │
 │  └──────────────────────────────────────────────────────┘       │
 │                                                                  │
 │  ┌────────────────────┐  (optional)                             │
 │  │  S3 Bucket          │                                         │
-│  │  CNAME → s3.raj-demo.internal                                │
+│  │  CNAME → s3.uai3.internal                                    │
 │  └────────────────────┘                                         │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -74,14 +74,14 @@ Add an entry to `EU_Central_FrontEnd` in `terraform.tfvars`:
 
 ```hcl
   VPC3 = {
-    aws_vpc_name          = "RajDemoVpc3"
-    igw_name              = "RajDemoVpc3-IGW"
-    rt_name               = "RajDemoVpc3-RT"
-    aws_subnet_name       = "RajDemoVpc3-Subnet"
+    aws_vpc_name          = "UAI3-Vpc3"
+    igw_name              = "UAI3-Vpc3-IGW"
+    rt_name               = "UAI3-Vpc3-RT"
+    aws_subnet_name       = "UAI3-Vpc3-Subnet"
     private_ip            = "10.30.1.10"
-    app_fqdn              = "app3.raj-demo.internal"
-    aws_ec2_name          = "RajDemoWeb3"
-    aws_ec2_key_pair_name = "EU_Central_RajDemo3"
+    app_fqdn              = "app3.uai3.internal"
+    aws_ec2_name          = "UAI3-Web3"
+    aws_ec2_key_pair_name = "UAI3_EU_Central_3"
     aws_vpc_cidr          = "10.30.0.0/16"
     aws_subnet_cidr       = "10.30.1.0/24"
   }
