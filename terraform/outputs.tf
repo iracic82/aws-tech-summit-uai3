@@ -1,74 +1,62 @@
-# --- VPC Outputs ---
+# --- Networking ---
 
 output "vpc_ids" {
-  description = "Map of VPC keys to VPC IDs"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.aws_vpc_id }
-}
-
-output "vpc_names" {
-  description = "Map of VPC keys to VPC names"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.aws_vpc_name }
+  description = "VPC key → VPC ID"
+  value       = { for k, v in module.aws_instances_eu_central : k => v.vpc_id }
 }
 
 output "vpc_cidrs" {
-  description = "Map of VPC keys to VPC CIDRs"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.aws_vpc_cidr }
+  description = "VPC key → CIDR block"
+  value       = { for k, v in module.aws_instances_eu_central : k => v.vpc_cidr }
 }
 
-# --- Networking Outputs ---
-
 output "subnet_ids" {
-  description = "Map of VPC keys to subnet IDs"
+  description = "VPC key → Subnet ID"
   value       = { for k, v in module.aws_instances_eu_central : k => v.subnet_id }
 }
 
 output "route_table_ids" {
-  description = "Map of VPC keys to route table IDs (for TGW route injection)"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.rt_id }
+  description = "VPC key → Route table ID (for TGW/peering route injection)"
+  value       = { for k, v in module.aws_instances_eu_central : k => v.route_table_id }
 }
 
-# --- EC2 Outputs ---
+# --- Compute ---
 
 output "ec2_public_ips" {
-  description = "Map of VPC keys to EC2 Elastic IPs"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.ec2_public_ip }
+  description = "VPC key → EC2 Elastic IP"
+  value       = { for k, v in module.aws_instances_eu_central : k => v.public_ip }
 }
 
 output "ec2_private_ips" {
-  description = "Map of VPC keys to EC2 private IPs"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.ec2_private_ip }
+  description = "VPC key → EC2 private IP"
+  value       = { for k, v in module.aws_instances_eu_central : k => v.private_ip }
 }
 
 output "ssh_commands" {
-  description = "SSH commands to access each EC2 instance"
+  description = "VPC key → SSH command"
   value       = { for k, v in module.aws_instances_eu_central : k => v.ssh_command }
 }
 
-# --- DNS Outputs ---
+# --- DNS ---
 
 output "dns_zone_id" {
   description = "Route53 private hosted zone ID"
-  value       = aws_route53_zone.private_zone.zone_id
-}
-
-output "dns_zone_name" {
-  description = "Route53 private hosted zone domain"
-  value       = aws_route53_zone.private_zone.name
+  value       = aws_route53_zone.private.zone_id
 }
 
 output "dns_records" {
-  description = "DNS A records created"
-  value       = [for r in aws_route53_record.dns_records : r.fqdn]
+  description = "DNS record key → FQDN"
+  value       = { for k, v in aws_route53_record.app : k => v.fqdn }
 }
 
-# --- S3 Outputs ---
+# --- S3 ---
 
 output "s3_bucket_name" {
-  description = "S3 bucket name (if created)"
-  value       = var.enable_s3_bucket ? aws_s3_bucket.demo[0].bucket : null
+  description = "S3 bucket name (null if disabled)"
+  value       = var.enable_s3_bucket ? aws_s3_bucket.this[0].bucket : null
 }
 
-output "s3_bucket_domain" {
-  description = "S3 bucket regional domain name (if created)"
-  value       = var.enable_s3_bucket ? aws_s3_bucket.demo[0].bucket_regional_domain_name : null
+output "s3_bucket_arn" {
+  description = "S3 bucket ARN (null if disabled)"
+  value       = var.enable_s3_bucket ? aws_s3_bucket.this[0].arn : null
 }

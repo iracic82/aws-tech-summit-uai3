@@ -6,12 +6,15 @@ resource_owner = "iracic@infoblox.com"
 route53_domain_name = "raj-demo.internal"
 enable_dns_records  = true
 
-# --- S3 ---
+# --- S3 (disabled by default — set true to create) ---
 
 enable_s3_bucket = false
 s3_bucket_name   = "raj-demo-infoblox"
 
 # --- VPC Definitions ---
+# Add/remove entries to scale. Each entry creates:
+#   VPC → Subnet → IGW → RT → SG → ENI → EC2 → EIP → Key Pair
+#   + Route53 A record from app_fqdn → private_ip
 
 EU_Central_FrontEnd = {
   VPC1 = {

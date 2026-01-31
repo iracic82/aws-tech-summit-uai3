@@ -1,59 +1,53 @@
-output "aws_vpc_id" {
-  description = "ID of the created VPC"
-  value       = aws_vpc.vpc1.id
+# --- Networking ---
+
+output "vpc_id" {
+  description = "VPC ID"
+  value       = aws_vpc.this.id
 }
 
-output "aws_vpc_name" {
-  description = "Name of the VPC"
-  value       = var.aws_vpc_name
-}
-
-output "aws_vpc_cidr" {
-  description = "CIDR block of the VPC"
-  value       = var.aws_vpc_cidr
+output "vpc_cidr" {
+  description = "VPC CIDR block"
+  value       = aws_vpc.this.cidr_block
 }
 
 output "subnet_id" {
-  description = "ID of the subnet"
-  value       = aws_subnet.subnet1.id
+  description = "Subnet ID"
+  value       = aws_subnet.this.id
 }
 
-output "rt_id" {
-  description = "ID of the route table (for TGW route injection)"
-  value       = aws_route_table.rt_vpc1.id
+output "route_table_id" {
+  description = "Route table ID (for TGW/peering route injection)"
+  value       = aws_route_table.this.id
 }
 
 output "security_group_id" {
-  description = "ID of the security group"
-  value       = aws_security_group.sg_allow_access_inbound.id
+  description = "Security group ID"
+  value       = aws_security_group.this.id
 }
 
-output "ec2_instance_id" {
-  description = "ID of the EC2 instance"
-  value       = aws_instance.ec2_linux.id
+# --- Compute ---
+
+output "instance_id" {
+  description = "EC2 instance ID"
+  value       = aws_instance.this.id
 }
 
-output "ec2_public_ip" {
-  description = "Elastic IP of the EC2 instance"
-  value       = aws_eip.eip.public_ip
+output "public_ip" {
+  description = "EC2 Elastic IP (public)"
+  value       = aws_eip.this.public_ip
 }
 
-output "ec2_private_ip" {
-  description = "Private IP of the EC2 instance"
+output "private_ip" {
+  description = "EC2 private IP"
   value       = var.private_ip
 }
 
 output "key_pair_name" {
-  description = "Name of the SSH key pair"
-  value       = aws_key_pair.demo_key_pair.key_name
+  description = "SSH key pair name"
+  value       = aws_key_pair.this.key_name
 }
 
 output "ssh_command" {
-  description = "SSH command to access the EC2 instance"
-  value       = "ssh -o StrictHostKeyChecking=no -i ${var.aws_ec2_key_pair_name}.pem ec2-user@${aws_eip.eip.public_ip}"
-}
-
-output "enable_peering" {
-  description = "Passthrough for peering compatibility (always false for AWS VPCs)"
-  value       = false
+  description = "SSH command to connect to the instance"
+  value       = "ssh -o StrictHostKeyChecking=no -i ${var.aws_ec2_key_pair_name}.pem ec2-user@${aws_eip.this.public_ip}"
 }

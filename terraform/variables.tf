@@ -5,12 +5,12 @@ variable "aws_region" {
 }
 
 variable "resource_owner" {
-  description = "ResourceOwner tag for all resources"
+  description = "ResourceOwner tag applied to all resources via default_tags"
   type        = string
   default     = "iracic@infoblox.com"
 }
 
-# --- VPC Definitions (map-of-objects per region) ---
+# --- VPC Definitions ---
 
 variable "EU_Central_FrontEnd" {
   description = "Map of VPC configurations for EU Central region"
@@ -35,6 +35,11 @@ variable "route53_domain_name" {
   description = "Private hosted zone domain name"
   type        = string
   default     = "raj-demo.internal"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9.-]+[a-z]$", var.route53_domain_name))
+    error_message = "route53_domain_name must be a valid domain (e.g. raj-demo.internal)."
+  }
 }
 
 variable "enable_dns_records" {
@@ -52,7 +57,7 @@ variable "enable_s3_bucket" {
 }
 
 variable "s3_bucket_name" {
-  description = "Name for the S3 bucket"
+  description = "Globally unique name for the S3 bucket"
   type        = string
   default     = "raj-demo-infoblox"
 }
