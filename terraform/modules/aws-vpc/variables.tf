@@ -1,24 +1,49 @@
-variable "vpc_name" {
-  description = "Name tag for the VPC and related resources"
+variable "aws_region" {
+  description = "AWS region for resource deployment"
   type        = string
 }
 
-variable "vpc_cidr" {
+variable "aws_vpc_name" {
+  description = "Name tag for the VPC"
+  type        = string
+}
+
+variable "aws_vpc_cidr" {
   description = "CIDR block for the VPC"
   type        = string
 }
 
-variable "subnet_cidr" {
-  description = "CIDR block for the public subnet"
+variable "aws_subnet_name" {
+  description = "Name tag for the subnet"
   type        = string
 }
 
-variable "instance_name" {
+variable "aws_subnet_cidr" {
+  description = "CIDR block for the subnet"
+  type        = string
+}
+
+variable "igw_name" {
+  description = "Name tag for the Internet Gateway"
+  type        = string
+}
+
+variable "rt_name" {
+  description = "Name tag for the Route Table"
+  type        = string
+}
+
+variable "aws_ec2_name" {
   description = "Name tag for the EC2 instance"
   type        = string
 }
 
-variable "instance_type" {
+variable "aws_ec2_key_pair_name" {
+  description = "Name for the SSH key pair"
+  type        = string
+}
+
+variable "aws_ec2_instance_type" {
   description = "EC2 instance type"
   type        = string
   default     = "t3.micro"
@@ -29,25 +54,26 @@ variable "private_ip" {
   type        = string
 }
 
-variable "ami_id" {
-  description = "AMI ID for the EC2 instance (Amazon Linux 2023)"
+variable "internet" {
+  description = "Whether to create IGW and default route (true/false as string for PoC compat)"
   type        = string
+  default     = "true"
+}
+
+variable "tgw" {
+  description = "Whether to create a Transit Gateway (true/false as string for PoC compat)"
+  type        = string
+  default     = "false"
 }
 
 variable "user_data" {
-  description = "User data script for EC2 instance"
+  description = "User data script for EC2 instance bootstrap"
   type        = string
   default     = ""
 }
 
-variable "enable_internet" {
-  description = "Whether to create IGW and public route table"
-  type        = bool
-  default     = true
-}
-
-variable "key_name_prefix" {
-  description = "Prefix for the SSH key pair name"
+variable "resource_owner" {
+  description = "ResourceOwner tag value for all resources"
   type        = string
-  default     = "raj-demo"
+  default     = "iracic@infoblox.com"
 }
