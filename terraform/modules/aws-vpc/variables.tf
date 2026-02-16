@@ -91,11 +91,11 @@ variable "user_data" {
 variable "enable_alb" {
   description = "Whether to create an ALB in this VPC"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "extra_eni_count" {
   description = "Number of extra standalone ENIs (with EIPs) for token generation"
   type        = number
-  default     = 3
+  default     = 0
 }
