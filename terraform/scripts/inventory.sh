@@ -4,8 +4,9 @@
 # Scans deployment regions with parallel API calls and produces
 # asset counts with Infoblox management token estimates.
 #
-# Token-bearing assets: EC2, EIP, ENI, IGW, NAT GW, VPN GW,
+# Assets with IP: EC2, EIP, ENI, IGW, NAT GW, VPN GW,
 #   Transit GW, VPN Connections, ELB (Classic/ALB/NLB)
+# Assets without IP: VPC, Subnet, SG, Route Table
 #
 # Usage:
 #   ./inventory.sh                          # full 8-region scan
@@ -115,27 +116,36 @@ scan_region() {
   local sg=$(cat "$tmpdir/sg")    rt=$(cat "$tmpdir/rt")
   rm -rf "$tmpdir"
 
-  # Token-bearing assets
-  local tokens=$(( ec2 + eip + eni + igw + nat + vgw + tgw + vpnc ))
-  local total=$(( tokens + vpc + subnet + sg + rt ))
+  # Assets with/without IP
+  local with_ip=$(( ec2 + eip + eni + igw + nat + vgw + tgw + vpnc ))
+  local without_ip=$(( vpc + subnet + sg + rt ))
+  local total=$(( with_ip + without_ip ))
 
   header "Region: ${r}"
-  printf "\n  ${BOLD}%-30s %7s %7s${NC}\n" "Resource" "Count" "Tokens"
-  divider
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "EC2 Instances"       "$ec2"  "$ec2"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Elastic IPs"         "$eip"  "$eip"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Network Interfaces"  "$eni"  "$eni"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Internet Gateways"   "$igw"  "$igw"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "NAT Gateways"        "$nat"  "$nat"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "VPN Gateways"        "$vgw"  "$vgw"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Transit Gateways"    "$tgw"  "$tgw"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "VPN Connections"     "$vpnc" "$vpnc"
-  printf "  %-30s ${WHITE}%7d${NC} ${DIM}%7s${NC}\n"    "VPCs"                "$vpc"  "-"
-  printf "  %-30s ${WHITE}%7d${NC} ${DIM}%7s${NC}\n"    "Subnets"             "$subnet" "-"
-  printf "  %-30s ${WHITE}%7d${NC} ${DIM}%7s${NC}\n"    "Security Groups"     "$sg"   "-"
-  printf "  %-30s ${WHITE}%7d${NC} ${DIM}%7s${NC}\n"    "Route Tables"        "$rt"   "-"
-  divider
-  printf "  ${BOLD}%-30s %7d ${YELLOW}%7d${NC}\n" "REGION TOTAL" "$total" "$tokens"
+  printf "\n  ${GREEN}Assets with IP association:${NC}\n"
+  printf "  ${BOLD}%-30s %7s${NC}\n" "Resource" "Count"
+  printf "  %-30s %7s\n" "$(printf '%0.s─' {1..30})" "$(printf '%0.s─' {1..7})"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "EC2 Instances"       "$ec2"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "Elastic IPs"         "$eip"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "Network Interfaces"  "$eni"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "Internet Gateways"   "$igw"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "NAT Gateways"        "$nat"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "VPN Gateways"        "$vgw"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "Transit Gateways"    "$tgw"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "VPN Connections"     "$vpnc"
+  printf "  %-30s %7s\n" "$(printf '%0.s─' {1..30})" "$(printf '%0.s─' {1..7})"
+  printf "  ${BOLD}%-30s ${YELLOW}%7d${NC}\n" "Subtotal (with IP)" "$with_ip"
+
+  printf "\n  ${DIM}Assets without IP association:${NC}\n"
+  printf "  %-30s ${WHITE}%7d${NC}\n" "VPCs"                "$vpc"
+  printf "  %-30s ${WHITE}%7d${NC}\n" "Subnets"             "$subnet"
+  printf "  %-30s ${WHITE}%7d${NC}\n" "Security Groups"     "$sg"
+  printf "  %-30s ${WHITE}%7d${NC}\n" "Route Tables"        "$rt"
+  printf "  %-30s %7s\n" "$(printf '%0.s─' {1..30})" "$(printf '%0.s─' {1..7})"
+  printf "  ${BOLD}%-30s ${WHITE}%7d${NC}\n" "Subtotal (without IP)" "$without_ip"
+
+  printf "\n  ${BOLD}%-30s %7d${NC}  (${YELLOW}%d${NC} with IP, ${WHITE}%d${NC} without)\n" \
+    "REGION TOTAL" "$total" "$with_ip" "$without_ip"
 
   # Accumulate
   R_EC2[$r]=$ec2;  R_EIP[$r]=$eip;  R_ENI[$r]=$eni;  R_IGW[$r]=$igw
@@ -184,44 +194,54 @@ scan_global() {
 print_summary() {
   header "Grand Summary — All Regions"
 
-  printf "\n  ${BOLD}%-18s %8s %8s${NC}\n" "Region" "Assets" "Tokens"
-  printf "  %-18s %8s %8s\n" \
-    "$(printf '%0.s─' {1..18})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..8})"
+  local grand_with=$(( G_EC2 + G_EIP + G_ENI + G_IGW + G_NAT + G_VGW + G_TGW + G_VPNC ))
+  local grand_without=$(( G_VPC + G_SUBNET + G_SG + G_RT ))
+  local grand_all=$(( grand_with + grand_without ))
+
+  printf "\n  ${BOLD}%-18s %8s %10s %10s${NC}\n" "Region" "Total" "With IP" "No IP"
+  printf "  %-18s %8s %10s %10s\n" \
+    "$(printf '%0.s─' {1..18})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..10})" "$(printf '%0.s─' {1..10})"
 
   for r in "${SCAN_REGIONS[@]}"; do
-    local tok=$(( ${R_EC2[$r]:-0} + ${R_EIP[$r]:-0} + ${R_ENI[$r]:-0} + ${R_IGW[$r]:-0} \
+    local rw=$(( ${R_EC2[$r]:-0} + ${R_EIP[$r]:-0} + ${R_ENI[$r]:-0} + ${R_IGW[$r]:-0} \
       + ${R_NAT[$r]:-0} + ${R_VGW[$r]:-0} + ${R_TGW[$r]:-0} + ${R_VPNC[$r]:-0} ))
-    local all=$(( tok + ${R_VPC[$r]:-0} + ${R_SUBNET[$r]:-0} + ${R_SG[$r]:-0} + ${R_RT[$r]:-0} ))
-    printf "  %-18s ${WHITE}%8d${NC} ${YELLOW}%8d${NC}\n" "$r" "$all" "$tok"
+    local rn=$(( ${R_VPC[$r]:-0} + ${R_SUBNET[$r]:-0} + ${R_SG[$r]:-0} + ${R_RT[$r]:-0} ))
+    local ra=$(( rw + rn ))
+    printf "  %-18s ${WHITE}%8d${NC} ${YELLOW}%10d${NC} %10d\n" "$r" "$ra" "$rw" "$rn"
   done
 
-  printf "  %-18s %8s %8s\n" \
-    "$(printf '%0.s─' {1..18})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..8})"
+  printf "  %-18s %8s %10s %10s\n" \
+    "$(printf '%0.s─' {1..18})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..10})" "$(printf '%0.s─' {1..10})"
+  printf "  ${BOLD}%-18s %8d ${YELLOW}%10d${NC} %10d${NC}\n\n" "TOTAL" "$grand_all" "$grand_with" "$grand_without"
 
-  local grand_tok=$(( G_EC2 + G_EIP + G_ENI + G_IGW + G_NAT + G_VGW + G_TGW + G_VPNC ))
-  local grand_all=$(( grand_tok + G_VPC + G_SUBNET + G_SG + G_RT ))
+  # Breakdown: assets with IP
+  printf "  ${GREEN}Assets with IP association:${NC}\n"
+  printf "  ${BOLD}%-30s %7s${NC}\n" "Resource" "Count"
+  printf "  %-30s %7s\n" "$(printf '%0.s─' {1..30})" "$(printf '%0.s─' {1..7})"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "EC2 Instances"       "$G_EC2"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "Elastic IPs"         "$G_EIP"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "Network Interfaces"  "$G_ENI"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "Internet Gateways"   "$G_IGW"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "NAT Gateways"        "$G_NAT"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "VPN Gateways"        "$G_VGW"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "Transit Gateways"    "$G_TGW"
+  printf "  %-30s ${YELLOW}%7d${NC}\n" "VPN Connections"     "$G_VPNC"
+  printf "  %-30s %7s\n" "$(printf '%0.s─' {1..30})" "$(printf '%0.s─' {1..7})"
+  printf "  ${BOLD}%-30s ${YELLOW}%7d${NC}\n\n" "Total with IP" "$grand_with"
 
-  printf "  ${BOLD}%-18s %8d ${YELLOW}%8d${NC}\n\n" "TOTAL" "$grand_all" "$grand_tok"
+  # Breakdown: assets without IP
+  printf "  ${DIM}Assets without IP association:${NC}\n"
+  printf "  %-30s ${WHITE}%7d${NC}\n" "VPCs"                "$G_VPC"
+  printf "  %-30s ${WHITE}%7d${NC}\n" "Subnets"             "$G_SUBNET"
+  printf "  %-30s ${WHITE}%7d${NC}\n" "Security Groups"     "$G_SG"
+  printf "  %-30s ${WHITE}%7d${NC}\n" "Route Tables"        "$G_RT"
+  printf "  %-30s %7s\n" "$(printf '%0.s─' {1..30})" "$(printf '%0.s─' {1..7})"
+  printf "  ${BOLD}%-30s ${WHITE}%7d${NC}\n\n" "Total without IP" "$grand_without"
 
-  # Breakdown by type
-  printf "  ${BOLD}%-30s %7s %7s${NC}\n" "Token-Bearing Resource" "Count" "Tokens"
-  divider
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "EC2 Instances"       "$G_EC2"  "$G_EC2"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Elastic IPs"         "$G_EIP"  "$G_EIP"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Network Interfaces"  "$G_ENI"  "$G_ENI"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Internet Gateways"   "$G_IGW"  "$G_IGW"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "NAT Gateways"        "$G_NAT"  "$G_NAT"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "VPN Gateways"        "$G_VGW"  "$G_VGW"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Transit Gateways"    "$G_TGW"  "$G_TGW"
-  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "VPN Connections"     "$G_VPNC" "$G_VPNC"
-  divider
-  printf "  ${BOLD}%-30s %7d ${YELLOW}%7d${NC}\n\n" "TOTAL" "$grand_tok" "$grand_tok"
-
-  printf "  ${DIM}Non-token assets: %d VPCs, %d Subnets, %d SGs, %d RTs${NC}\n" \
-    "$G_VPC" "$G_SUBNET" "$G_SG" "$G_RT"
   printf "  ${DIM}Global: %d Route53 zones, %d S3 buckets${NC}\n" "$G_ZONES" "$G_BUCKETS"
 
-  printf "\n  ${BOLD}${WHITE}═══ Estimated Management Tokens: %d ═══${NC}\n" "$grand_tok"
+  printf "\n  ${BOLD}${WHITE}═══ Total Assets: %d  |  With IP: %d  |  Without IP: %d ═══${NC}\n" \
+    "$grand_all" "$grand_with" "$grand_without"
 }
 
 # ============================================================
