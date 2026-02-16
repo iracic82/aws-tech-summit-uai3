@@ -88,6 +88,8 @@ Multi-region Terraform deploying **40 VPCs across 10 AWS regions** with ALBs, NA
 │   ├── outputs.tf            # Aggregated outputs from all 10 modules
 │   ├── templates/
 │   │   └── user-data.sh.tpl  # Docker + nginx:alpine bootstrap
+│   ├── scripts/
+│   │   └── inventory.sh     # Multi-region AWS resource inventory
 │   └── modules/
 │       └── aws-vpc/
 │           ├── main.tf       # VPC → 2 Subnets → IGW → RT → SG → ENI → EC2 → EIP → ALB → extra ENIs/EIPs
@@ -106,6 +108,23 @@ terraform init
 terraform plan      # verify ~1,071 resources
 terraform apply -auto-approve
 ```
+
+## Resource Inventory
+
+After deploying, run the inventory script to audit all resources and IPs:
+
+```bash
+# Full 10-region scan with color output
+./terraform/scripts/inventory.sh
+
+# Single-region quick check
+./terraform/scripts/inventory.sh --region eu-central-1
+
+# Pipe to file (no ANSI colors)
+./terraform/scripts/inventory.sh --no-color > report.txt
+```
+
+The script queries EC2, EIP, ENI, VPC, Subnet, IGW, ALB, NAT GW, VPN GW, Security Groups, Route Tables, Route53, and S3 across all deployment regions and produces a summary table with IP addresses highlighted.
 
 ## Scaling
 
