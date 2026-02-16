@@ -77,20 +77,6 @@ provider "aws" {
 }
 
 provider "aws" {
-  alias  = "ap_southeast_1"
-  region = "ap-southeast-1"
-
-  default_tags {
-    tags = {
-      Project       = "UAI3"
-      Environment   = "Lab"
-      ManagedBy     = "Terraform"
-      ResourceOwner = var.resource_owner
-    }
-  }
-}
-
-provider "aws" {
   alias  = "ap_northeast_1"
   region = "ap-northeast-1"
 
@@ -135,20 +121,6 @@ provider "aws" {
 provider "aws" {
   alias  = "ap_south_1"
   region = "ap-south-1"
-
-  default_tags {
-    tags = {
-      Project       = "UAI3"
-      Environment   = "Lab"
-      ManagedBy     = "Terraform"
-      ResourceOwner = var.resource_owner
-    }
-  }
-}
-
-provider "aws" {
-  alias  = "eu_north_1"
-  region = "eu-north-1"
 
   default_tags {
     tags = {

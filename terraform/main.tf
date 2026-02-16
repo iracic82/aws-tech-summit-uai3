@@ -13,12 +13,10 @@ locals {
     "us-west-2"      = { short = "USW2", cidr_base = 20 }
     "eu-central-1"   = { short = "EUC1", cidr_base = 30 }
     "eu-west-1"      = { short = "EUW1", cidr_base = 40 }
-    "ap-southeast-1" = { short = "APSE1", cidr_base = 50 }
     "ap-northeast-1" = { short = "APNE1", cidr_base = 60 }
     "sa-east-1"      = { short = "SAE1", cidr_base = 70 }
     "ca-central-1"   = { short = "CAC1", cidr_base = 80 }
     "ap-south-1"     = { short = "APS1", cidr_base = 90 }
-    "eu-north-1"     = { short = "EUN1", cidr_base = 100 }
   }
 }
 
@@ -131,27 +129,6 @@ module "vpcs_eu_west_1" {
   internet              = true
 }
 
-# --- ap-southeast-1 ---
-
-module "vpcs_ap_southeast_1" {
-  source   = "./modules/aws-vpc"
-  for_each = local.all_vpcs["ap-southeast-1"]
-
-  providers = { aws = aws.ap_southeast_1 }
-
-  aws_vpc_name          = each.value.aws_vpc_name
-  aws_vpc_cidr          = each.value.aws_vpc_cidr
-  aws_subnet_name       = each.value.aws_subnet_name
-  aws_subnet_cidr       = each.value.aws_subnet_cidr
-  igw_name              = each.value.igw_name
-  rt_name               = each.value.rt_name
-  private_ip            = each.value.private_ip
-  aws_ec2_name          = each.value.aws_ec2_name
-  aws_ec2_key_pair_name = each.value.aws_ec2_key_pair_name
-  user_data             = local.default_user_data
-  internet              = true
-}
-
 # --- ap-northeast-1 ---
 
 module "vpcs_ap_northeast_1" {
@@ -236,56 +213,31 @@ module "vpcs_ap_south_1" {
   internet              = true
 }
 
-# --- eu-north-1 ---
-
-module "vpcs_eu_north_1" {
-  source   = "./modules/aws-vpc"
-  for_each = local.all_vpcs["eu-north-1"]
-
-  providers = { aws = aws.eu_north_1 }
-
-  aws_vpc_name          = each.value.aws_vpc_name
-  aws_vpc_cidr          = each.value.aws_vpc_cidr
-  aws_subnet_name       = each.value.aws_subnet_name
-  aws_subnet_cidr       = each.value.aws_subnet_cidr
-  igw_name              = each.value.igw_name
-  rt_name               = each.value.rt_name
-  private_ip            = each.value.private_ip
-  aws_ec2_name          = each.value.aws_ec2_name
-  aws_ec2_key_pair_name = each.value.aws_ec2_key_pair_name
-  user_data             = local.default_user_data
-  internet              = true
-}
-
 # ============================================================
 # Merged module outputs (flat map for outputs + DNS)
 # ============================================================
 
 locals {
   all_modules = merge(
-    { for k, v in module.vpcs_us_east_1 :      "us-east-1/${k}" => v },
-    { for k, v in module.vpcs_us_west_2 :      "us-west-2/${k}" => v },
-    { for k, v in module.vpcs_eu_central_1 :   "eu-central-1/${k}" => v },
-    { for k, v in module.vpcs_eu_west_1 :      "eu-west-1/${k}" => v },
-    { for k, v in module.vpcs_ap_southeast_1 : "ap-southeast-1/${k}" => v },
+    { for k, v in module.vpcs_us_east_1 : "us-east-1/${k}" => v },
+    { for k, v in module.vpcs_us_west_2 : "us-west-2/${k}" => v },
+    { for k, v in module.vpcs_eu_central_1 : "eu-central-1/${k}" => v },
+    { for k, v in module.vpcs_eu_west_1 : "eu-west-1/${k}" => v },
     { for k, v in module.vpcs_ap_northeast_1 : "ap-northeast-1/${k}" => v },
-    { for k, v in module.vpcs_sa_east_1 :      "sa-east-1/${k}" => v },
-    { for k, v in module.vpcs_ca_central_1 :   "ca-central-1/${k}" => v },
-    { for k, v in module.vpcs_ap_south_1 :     "ap-south-1/${k}" => v },
-    { for k, v in module.vpcs_eu_north_1 :     "eu-north-1/${k}" => v },
+    { for k, v in module.vpcs_sa_east_1 : "sa-east-1/${k}" => v },
+    { for k, v in module.vpcs_ca_central_1 : "ca-central-1/${k}" => v },
+    { for k, v in module.vpcs_ap_south_1 : "ap-south-1/${k}" => v },
   )
 
   # VPC associations for Route53 (vpc_id + region)
   all_vpc_associations = merge(
-    { for k, v in module.vpcs_us_east_1 :      "us-east-1/${k}" => { vpc_id = v.vpc_id, region = "us-east-1" } },
-    { for k, v in module.vpcs_us_west_2 :      "us-west-2/${k}" => { vpc_id = v.vpc_id, region = "us-west-2" } },
-    { for k, v in module.vpcs_eu_central_1 :   "eu-central-1/${k}" => { vpc_id = v.vpc_id, region = "eu-central-1" } },
-    { for k, v in module.vpcs_eu_west_1 :      "eu-west-1/${k}" => { vpc_id = v.vpc_id, region = "eu-west-1" } },
-    { for k, v in module.vpcs_ap_southeast_1 : "ap-southeast-1/${k}" => { vpc_id = v.vpc_id, region = "ap-southeast-1" } },
+    { for k, v in module.vpcs_us_east_1 : "us-east-1/${k}" => { vpc_id = v.vpc_id, region = "us-east-1" } },
+    { for k, v in module.vpcs_us_west_2 : "us-west-2/${k}" => { vpc_id = v.vpc_id, region = "us-west-2" } },
+    { for k, v in module.vpcs_eu_central_1 : "eu-central-1/${k}" => { vpc_id = v.vpc_id, region = "eu-central-1" } },
+    { for k, v in module.vpcs_eu_west_1 : "eu-west-1/${k}" => { vpc_id = v.vpc_id, region = "eu-west-1" } },
     { for k, v in module.vpcs_ap_northeast_1 : "ap-northeast-1/${k}" => { vpc_id = v.vpc_id, region = "ap-northeast-1" } },
-    { for k, v in module.vpcs_sa_east_1 :      "sa-east-1/${k}" => { vpc_id = v.vpc_id, region = "sa-east-1" } },
-    { for k, v in module.vpcs_ca_central_1 :   "ca-central-1/${k}" => { vpc_id = v.vpc_id, region = "ca-central-1" } },
-    { for k, v in module.vpcs_ap_south_1 :     "ap-south-1/${k}" => { vpc_id = v.vpc_id, region = "ap-south-1" } },
-    { for k, v in module.vpcs_eu_north_1 :     "eu-north-1/${k}" => { vpc_id = v.vpc_id, region = "eu-north-1" } },
+    { for k, v in module.vpcs_sa_east_1 : "sa-east-1/${k}" => { vpc_id = v.vpc_id, region = "sa-east-1" } },
+    { for k, v in module.vpcs_ca_central_1 : "ca-central-1/${k}" => { vpc_id = v.vpc_id, region = "ca-central-1" } },
+    { for k, v in module.vpcs_ap_south_1 : "ap-south-1/${k}" => { vpc_id = v.vpc_id, region = "ap-south-1" } },
   )
 }

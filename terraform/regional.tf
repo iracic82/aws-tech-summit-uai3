@@ -84,27 +84,6 @@ resource "aws_vpn_gateway" "eu_west_1" {
   tags     = { Name = "UAI3-EUW1-VGW" }
 }
 
-# --- ap-southeast-1 ---
-
-resource "aws_eip" "nat_ap_southeast_1" {
-  provider = aws.ap_southeast_1
-  domain   = "vpc"
-  tags     = { Name = "UAI3-APSE1-NAT-EIP" }
-}
-
-resource "aws_nat_gateway" "ap_southeast_1" {
-  provider      = aws.ap_southeast_1
-  allocation_id = aws_eip.nat_ap_southeast_1.id
-  subnet_id     = module.vpcs_ap_southeast_1["VPC1"].subnet_id
-  tags          = { Name = "UAI3-APSE1-NAT" }
-}
-
-resource "aws_vpn_gateway" "ap_southeast_1" {
-  provider = aws.ap_southeast_1
-  vpc_id   = module.vpcs_ap_southeast_1["VPC1"].vpc_id
-  tags     = { Name = "UAI3-APSE1-VGW" }
-}
-
 # --- ap-northeast-1 ---
 
 resource "aws_eip" "nat_ap_northeast_1" {
@@ -187,25 +166,4 @@ resource "aws_vpn_gateway" "ap_south_1" {
   provider = aws.ap_south_1
   vpc_id   = module.vpcs_ap_south_1["VPC1"].vpc_id
   tags     = { Name = "UAI3-APS1-VGW" }
-}
-
-# --- eu-north-1 ---
-
-resource "aws_eip" "nat_eu_north_1" {
-  provider = aws.eu_north_1
-  domain   = "vpc"
-  tags     = { Name = "UAI3-EUN1-NAT-EIP" }
-}
-
-resource "aws_nat_gateway" "eu_north_1" {
-  provider      = aws.eu_north_1
-  allocation_id = aws_eip.nat_eu_north_1.id
-  subnet_id     = module.vpcs_eu_north_1["VPC1"].subnet_id
-  tags          = { Name = "UAI3-EUN1-NAT" }
-}
-
-resource "aws_vpn_gateway" "eu_north_1" {
-  provider = aws.eu_north_1
-  vpc_id   = module.vpcs_eu_north_1["VPC1"].vpc_id
-  tags     = { Name = "UAI3-EUN1-VGW" }
 }
