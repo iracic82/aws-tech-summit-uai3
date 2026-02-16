@@ -1,5 +1,5 @@
 variable "aws_region" {
-  description = "AWS region for resource deployment"
+  description = "AWS default region for resource deployment"
   type        = string
   default     = "eu-central-1"
 }
@@ -10,23 +10,12 @@ variable "resource_owner" {
   default     = "iracic@infoblox.com"
 }
 
-# --- VPC Definitions ---
+# --- VPC Scaling ---
 
-variable "EU_Central_FrontEnd" {
-  description = "Map of VPC configurations for EU Central region"
-  type = map(object({
-    aws_vpc_name          = string
-    igw_name              = string
-    rt_name               = string
-    aws_subnet_name       = string
-    private_ip            = string
-    app_fqdn              = string
-    aws_ec2_name          = string
-    aws_ec2_key_pair_name = string
-    aws_vpc_cidr          = string
-    aws_subnet_cidr       = string
-  }))
-  default = {}
+variable "vpcs_per_region" {
+  description = "Number of VPCs to deploy per region"
+  type        = number
+  default     = 4
 }
 
 # --- DNS ---

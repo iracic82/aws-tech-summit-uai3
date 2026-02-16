@@ -5,25 +5,27 @@ resource "aws_route53_zone" "private" {
   comment = "Private hosted zone for Raj Demo"
 
   dynamic "vpc" {
-    for_each = module.aws_instances_eu_central
+    for_each = local.all_vpc_associations
     content {
       vpc_id     = vpc.value.vpc_id
-      vpc_region = var.aws_region
+      vpc_region = vpc.value.region
     }
   }
 
   tags = { Name = "${var.route53_domain_name}-zone" }
 }
 
-# --- DNS A Records (derived from VPC app_fqdn via for_each) ---
+# --- DNS A Records (derived from all_vpcs across all regions) ---
 
 locals {
-  dns_records = var.enable_dns_records ? {
-    for key, vpc in var.EU_Central_FrontEnd : key => {
-      fqdn       = vpc.app_fqdn
-      private_ip = vpc.private_ip
+  dns_records = var.enable_dns_records ? merge([
+    for region, vpcs in local.all_vpcs : {
+      for key, vpc in vpcs : "${region}/${key}" => {
+        fqdn       = vpc.app_fqdn
+        private_ip = vpc.private_ip
+      }
     }
-  } : {}
+  ]...) : {}
 }
 
 resource "aws_route53_record" "app" {

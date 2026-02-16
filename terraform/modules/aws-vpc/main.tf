@@ -11,6 +11,31 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+# --- AMI lookup (auto-resolve when ami_id is empty) ---
+
+data "aws_ami" "amazon_linux_2023" {
+  count       = var.ami_id == "" ? 1 : 0
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+}
+
+locals {
+  resolved_ami_id = var.ami_id != "" ? var.ami_id : data.aws_ami.amazon_linux_2023[0].id
+
+  # Auto-derive subnet B CIDR: replace .1.0/24 with .2.0/24 in the VPC CIDR
+  subnet_b_cidr = var.subnet_b_cidr != "" ? var.subnet_b_cidr : cidrsubnet(var.aws_vpc_cidr, 8, 2)
+}
+
 # --- VPC ---
 
 resource "aws_vpc" "this" {
@@ -21,7 +46,7 @@ resource "aws_vpc" "this" {
   tags = { Name = var.aws_vpc_name }
 }
 
-# --- Subnet ---
+# --- Subnet A (primary, AZ a) ---
 
 resource "aws_subnet" "this" {
   vpc_id            = aws_vpc.this.id
@@ -29,6 +54,17 @@ resource "aws_subnet" "this" {
   availability_zone = data.aws_availability_zones.available.names[0]
 
   tags = { Name = var.aws_subnet_name }
+}
+
+# --- Subnet B (secondary, AZ b — required for ALB) ---
+
+resource "aws_subnet" "b" {
+  count             = var.enable_alb ? 1 : 0
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = local.subnet_b_cidr
+  availability_zone = data.aws_availability_zones.available.names[1]
+
+  tags = { Name = "${var.aws_subnet_name}-b" }
 }
 
 # --- Internet Gateway (conditional) ---
@@ -51,6 +87,12 @@ resource "aws_route_table" "this" {
 resource "aws_route_table_association" "this" {
   route_table_id = aws_route_table.this.id
   subnet_id      = aws_subnet.this.id
+}
+
+resource "aws_route_table_association" "b" {
+  count          = var.enable_alb ? 1 : 0
+  route_table_id = aws_route_table.this.id
+  subnet_id      = aws_subnet.b[0].id
 }
 
 # --- Default Route via IGW (conditional) ---
@@ -142,7 +184,7 @@ resource "local_sensitive_file" "pem" {
 # --- EC2 Instance ---
 
 resource "aws_instance" "this" {
-  ami           = var.ami_id
+  ami           = local.resolved_ami_id
   instance_type = var.aws_ec2_instance_type
   key_name      = aws_key_pair.this.key_name
 
@@ -158,7 +200,7 @@ resource "aws_instance" "this" {
   depends_on = [aws_internet_gateway.this]
 }
 
-# --- Elastic IP ---
+# --- Elastic IP (for EC2) ---
 
 resource "aws_eip" "this" {
   domain                    = "vpc"
@@ -168,4 +210,82 @@ resource "aws_eip" "this" {
   tags = { Name = "${var.aws_ec2_name}-eip" }
 
   depends_on = [aws_internet_gateway.this]
+}
+
+# --- Extra Standalone ENIs (token generators) ---
+
+resource "aws_network_interface" "extra" {
+  count           = var.extra_eni_count
+  subnet_id       = aws_subnet.this.id
+  security_groups = [aws_security_group.this.id]
+
+  tags = { Name = "${var.aws_vpc_name}-extra-eni-${count.index + 1}" }
+}
+
+# --- Extra EIPs (attached to extra ENIs) ---
+
+resource "aws_eip" "extra" {
+  count                     = var.extra_eni_count
+  domain                    = "vpc"
+  network_interface         = aws_network_interface.extra[count.index].id
+  associate_with_private_ip = aws_network_interface.extra[count.index].private_ip
+
+  tags = { Name = "${var.aws_vpc_name}-extra-eip-${count.index + 1}" }
+
+  depends_on = [aws_internet_gateway.this]
+}
+
+# --- ALB (Application Load Balancer) ---
+
+resource "aws_lb" "this" {
+  count              = var.enable_alb ? 1 : 0
+  name               = replace("${var.aws_vpc_name}-alb", "/[^a-zA-Z0-9-]/", "-")
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.this.id]
+  subnets            = [aws_subnet.this.id, aws_subnet.b[0].id]
+
+  tags = { Name = "${var.aws_vpc_name}-alb" }
+
+  depends_on = [aws_internet_gateway.this]
+}
+
+resource "aws_lb_target_group" "this" {
+  count    = var.enable_alb ? 1 : 0
+  name     = replace("${var.aws_vpc_name}-tg", "/[^a-zA-Z0-9-]/", "-")
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.this.id
+
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
+  }
+
+  tags = { Name = "${var.aws_vpc_name}-tg" }
+}
+
+resource "aws_lb_target_group_attachment" "this" {
+  count            = var.enable_alb ? 1 : 0
+  target_group_arn = aws_lb_target_group.this[0].arn
+  target_id        = aws_instance.this.id
+  port             = 80
+}
+
+resource "aws_lb_listener" "http" {
+  count             = var.enable_alb ? 1 : 0
+  load_balancer_arn = aws_lb.this[0].arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.this[0].arn
+  }
+
+  tags = { Name = "${var.aws_vpc_name}-listener" }
 }

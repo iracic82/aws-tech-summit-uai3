@@ -1,40 +1,47 @@
 # --- Networking ---
 
 output "vpc_ids" {
-  description = "VPC key → VPC ID"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.vpc_id }
+  description = "region/VPC key → VPC ID"
+  value       = { for k, v in local.all_modules : k => v.vpc_id }
 }
 
 output "vpc_cidrs" {
-  description = "VPC key → CIDR block"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.vpc_cidr }
+  description = "region/VPC key → CIDR block"
+  value       = { for k, v in local.all_modules : k => v.vpc_cidr }
 }
 
 output "subnet_ids" {
-  description = "VPC key → Subnet ID"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.subnet_id }
+  description = "region/VPC key → Subnet ID"
+  value       = { for k, v in local.all_modules : k => v.subnet_id }
 }
 
 output "route_table_ids" {
-  description = "VPC key → Route table ID (for TGW/peering route injection)"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.route_table_id }
+  description = "region/VPC key → Route table ID (for TGW/peering route injection)"
+  value       = { for k, v in local.all_modules : k => v.route_table_id }
 }
 
 # --- Compute ---
 
 output "ec2_public_ips" {
-  description = "VPC key → EC2 Elastic IP"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.public_ip }
+  description = "region/VPC key → EC2 Elastic IP"
+  value       = { for k, v in local.all_modules : k => v.public_ip }
 }
 
 output "ec2_private_ips" {
-  description = "VPC key → EC2 private IP"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.private_ip }
+  description = "region/VPC key → EC2 private IP"
+  value       = { for k, v in local.all_modules : k => v.private_ip }
 }
 
 output "ssh_commands" {
-  description = "VPC key → SSH command"
-  value       = { for k, v in module.aws_instances_eu_central : k => v.ssh_command }
+  description = "region/VPC key → SSH command"
+  value       = { for k, v in local.all_modules : k => v.ssh_command }
+}
+
+# --- ALB ---
+
+output "alb_dns_names" {
+  description = "region/VPC key → ALB DNS name"
+  value       = { for k, v in local.all_modules : k => v.alb_dns_name if v.alb_dns_name != null }
 }
 
 # --- DNS ---

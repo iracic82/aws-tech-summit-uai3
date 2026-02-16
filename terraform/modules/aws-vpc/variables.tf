@@ -28,6 +28,12 @@ variable "aws_subnet_cidr" {
   }
 }
 
+variable "subnet_b_cidr" {
+  description = "CIDR block for the second subnet (AZ b, needed for ALB). Auto-derived from VPC CIDR if empty."
+  type        = string
+  default     = ""
+}
+
 variable "igw_name" {
   description = "Name tag for the Internet Gateway"
   type        = string
@@ -55,8 +61,9 @@ variable "aws_ec2_instance_type" {
 }
 
 variable "ami_id" {
-  description = "AMI ID for the EC2 instance (resolved at root level)"
+  description = "AMI ID for the EC2 instance. If empty, auto-resolved via data source."
   type        = string
+  default     = ""
 }
 
 variable "private_ip" {
@@ -79,4 +86,16 @@ variable "user_data" {
   description = "User data script for EC2 instance bootstrap"
   type        = string
   default     = ""
+}
+
+variable "enable_alb" {
+  description = "Whether to create an ALB in this VPC"
+  type        = bool
+  default     = true
+}
+
+variable "extra_eni_count" {
+  description = "Number of extra standalone ENIs (with EIPs) for token generation"
+  type        = number
+  default     = 3
 }

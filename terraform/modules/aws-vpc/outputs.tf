@@ -11,7 +11,7 @@ output "vpc_cidr" {
 }
 
 output "subnet_id" {
-  description = "Subnet ID"
+  description = "Subnet A ID"
   value       = aws_subnet.this.id
 }
 
@@ -50,4 +50,11 @@ output "key_pair_name" {
 output "ssh_command" {
   description = "SSH command to connect to the instance"
   value       = "ssh -o StrictHostKeyChecking=no -i ${var.aws_ec2_key_pair_name}.pem ec2-user@${aws_eip.this.public_ip}"
+}
+
+# --- ALB ---
+
+output "alb_dns_name" {
+  description = "ALB DNS name (null when ALB disabled)"
+  value       = var.enable_alb ? aws_lb.this[0].dns_name : null
 }
