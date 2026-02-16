@@ -1,249 +1,180 @@
 #!/usr/bin/env bash
 # ============================================================
 # AWS Resource Inventory — UAI3 Tech Summit Lab
-# Scans deployment regions and produces asset counts with
-# IP association breakdown per region and a grand summary.
+# Scans deployment regions with parallel API calls and produces
+# asset counts with Infoblox management token estimates.
+#
+# Token-bearing assets: EC2, EIP, ENI, IGW, NAT GW, VPN GW,
+#   Transit GW, VPN Connections, ELB (Classic/ALB/NLB)
 #
 # Usage:
 #   ./inventory.sh                          # full 8-region scan
 #   ./inventory.sh --region eu-central-1    # single-region scan
-#   ./inventory.sh --no-color               # disable ANSI colors
 #   ./inventory.sh --no-color > report.txt  # pipe to file
 # ============================================================
 set -uo pipefail
 
-# --- Deployment regions (matches Terraform providers) ---------------------
-
 ALL_REGIONS=(
-  us-east-1
-  us-west-2
-  eu-central-1
-  eu-west-1
-  ap-northeast-1
-  sa-east-1
-  ca-central-1
-  ap-south-1
+  us-east-1 us-west-2 eu-central-1 eu-west-1
+  ap-northeast-1 sa-east-1 ca-central-1 ap-south-1
 )
 
-# --- Color helpers --------------------------------------------------------
+# --- Colors ---------------------------------------------------------------
 
 USE_COLOR=true
-
 setup_colors() {
   if [[ "$USE_COLOR" == true ]] && [[ -t 1 ]]; then
-    CYAN='\033[0;36m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    WHITE='\033[1;37m'
-    DIM='\033[2m'
-    BOLD='\033[1m'
-    NC='\033[0m'
+    CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'
+    WHITE='\033[1;37m'; DIM='\033[2m'; BOLD='\033[1m'; NC='\033[0m'
   else
-    CYAN='' GREEN='' YELLOW='' WHITE='' RED='' DIM='' BOLD='' NC=''
+    CYAN='' GREEN='' YELLOW='' WHITE='' DIM='' BOLD='' NC=''
   fi
 }
 
-# --- Argument parsing -----------------------------------------------------
+# --- Args -----------------------------------------------------------------
 
 SCAN_REGIONS=()
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --no-color)
-      USE_COLOR=false
-      shift
-      ;;
-    --region)
-      [[ -z "${2:-}" ]] && { echo "Error: --region requires a value"; exit 1; }
-      SCAN_REGIONS+=("$2")
-      shift 2
-      ;;
-    -h|--help)
-      echo "Usage: $(basename "$0") [--no-color] [--region <name>]"
-      echo ""
-      echo "  --no-color          Disable ANSI color output"
-      echo "  --region <name>     Scan only the specified region (repeatable)"
-      echo "  -h, --help          Show this help"
-      echo ""
-      echo "Default: scans all 8 deployment regions."
-      exit 0
-      ;;
-    *)
-      echo "Unknown option: $1"; exit 1
-      ;;
+    --no-color) USE_COLOR=false; shift ;;
+    --region)   [[ -z "${2:-}" ]] && { echo "Error: --region requires a value"; exit 1; }
+                SCAN_REGIONS+=("$2"); shift 2 ;;
+    -h|--help)  echo "Usage: $(basename "$0") [--no-color] [--region <name>]"; exit 0 ;;
+    *)          echo "Unknown option: $1"; exit 1 ;;
   esac
 done
-
-if [[ ${#SCAN_REGIONS[@]} -eq 0 ]]; then
-  SCAN_REGIONS=("${ALL_REGIONS[@]}")
-fi
-
+[[ ${#SCAN_REGIONS[@]} -eq 0 ]] && SCAN_REGIONS=("${ALL_REGIONS[@]}")
 setup_colors
 
-# --- Utility functions ----------------------------------------------------
+# --- Helpers --------------------------------------------------------------
 
 header() {
   printf "\n${CYAN}${BOLD}══════════════════════════════════════════════════════════════${NC}\n"
   printf "${CYAN}${BOLD}  %s${NC}\n" "$1"
   printf "${CYAN}${BOLD}══════════════════════════════════════════════════════════════${NC}\n"
 }
-
-# Helper: run AWS CLI with region — returns empty string on error (SCP deny etc)
-aws_q() {
-  local region="$1"; shift
-  aws --region "$region" --output json "$@" 2>/dev/null || true
+divider() {
+  printf "  %-30s %7s %7s\n" "$(printf '%0.s─' {1..30})" "$(printf '%0.s─' {1..7})" "$(printf '%0.s─' {1..7})"
 }
 
-# --- Grand-total accumulators ---------------------------------------------
+# --- Accumulators ---------------------------------------------------------
 
-declare -A T_EC2 T_EC2_PUB T_EIP T_EIP_ASSOC T_ENI T_ENI_PUB
-declare -A T_VPC T_SUBNET T_IGW T_NAT T_NAT_PUB T_VGW T_SG T_RT
+declare -A R_EC2 R_EIP R_ENI R_IGW R_NAT R_VGW R_TGW R_VPNC R_VPC R_SUBNET R_SG R_RT
+G_EC2=0 G_EIP=0 G_ENI=0 G_IGW=0 G_NAT=0 G_VGW=0 G_TGW=0 G_VPNC=0
+G_VPC=0 G_SUBNET=0 G_SG=0 G_RT=0
 
-G_EC2=0 G_EC2_PUB=0 G_EIP=0 G_EIP_ASSOC=0 G_ENI=0 G_ENI_PUB=0
-G_VPC=0 G_SUBNET=0 G_IGW=0 G_NAT=0 G_NAT_PUB=0 G_VGW=0 G_SG=0 G_RT=0
+# --- Count helper: query AWS and return length ----------------------------
+
+aws_count() {
+  local region="$1"; shift
+  local result
+  result=$(aws --region "$region" --output json "$@" 2>/dev/null || true)
+  if [[ -n "$result" ]] && [[ "$result" != "[]" ]] && [[ "$result" != "null" ]]; then
+    echo "$result" | jq 'if type == "array" then length else 0 end' 2>/dev/null || echo 0
+  else
+    echo 0
+  fi
+}
 
 # ============================================================
-# Per-region scan
+# Per-region scan — all API calls in parallel
 # ============================================================
 
 scan_region() {
   local r="$1"
-  local ec2=0 ec2_pub=0 eip=0 eip_assoc=0 eni=0 eni_pub=0
-  local vpc=0 subnet=0 igw=0 nat=0 nat_pub=0 vgw=0 sg=0 rt=0
+  local tmpdir
+  tmpdir=$(mktemp -d)
+
+  # Fire all queries in parallel
+  aws_count "$r" ec2 describe-instances \
+    --filters "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+    --query 'Reservations[].Instances[]' > "$tmpdir/ec2" &
+  aws_count "$r" ec2 describe-addresses --query 'Addresses' > "$tmpdir/eip" &
+  aws_count "$r" ec2 describe-network-interfaces --query 'NetworkInterfaces' > "$tmpdir/eni" &
+  aws_count "$r" ec2 describe-internet-gateways --query 'InternetGateways' > "$tmpdir/igw" &
+  aws_count "$r" ec2 describe-nat-gateways \
+    --filter "Name=state,Values=pending,available" --query 'NatGateways' > "$tmpdir/nat" &
+  aws_count "$r" ec2 describe-vpn-gateways \
+    --filters "Name=state,Values=pending,available" --query 'VpnGateways' > "$tmpdir/vgw" &
+  aws_count "$r" ec2 describe-transit-gateways \
+    --filters "Name=state,Values=pending,available" --query 'TransitGateways' > "$tmpdir/tgw" &
+  aws_count "$r" ec2 describe-vpn-connections \
+    --filters "Name=state,Values=pending,available" --query 'VpnConnections' > "$tmpdir/vpnc" &
+  aws_count "$r" ec2 describe-vpcs --query 'Vpcs' > "$tmpdir/vpc" &
+  aws_count "$r" ec2 describe-subnets --query 'Subnets' > "$tmpdir/subnet" &
+  aws_count "$r" ec2 describe-security-groups --query 'SecurityGroups' > "$tmpdir/sg" &
+  aws_count "$r" ec2 describe-route-tables --query 'RouteTables' > "$tmpdir/rt" &
+
+  wait
+
+  # Read results
+  local ec2=$(cat "$tmpdir/ec2")  eip=$(cat "$tmpdir/eip")  eni=$(cat "$tmpdir/eni")
+  local igw=$(cat "$tmpdir/igw")  nat=$(cat "$tmpdir/nat")  vgw=$(cat "$tmpdir/vgw")
+  local tgw=$(cat "$tmpdir/tgw")  vpnc=$(cat "$tmpdir/vpnc")
+  local vpc=$(cat "$tmpdir/vpc")  subnet=$(cat "$tmpdir/subnet")
+  local sg=$(cat "$tmpdir/sg")    rt=$(cat "$tmpdir/rt")
+  rm -rf "$tmpdir"
+
+  # Token-bearing assets
+  local tokens=$(( ec2 + eip + eni + igw + nat + vgw + tgw + vpnc ))
+  local total=$(( tokens + vpc + subnet + sg + rt ))
 
   header "Region: ${r}"
+  printf "\n  ${BOLD}%-30s %7s %7s${NC}\n" "Resource" "Count" "Tokens"
+  divider
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "EC2 Instances"       "$ec2"  "$ec2"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Elastic IPs"         "$eip"  "$eip"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Network Interfaces"  "$eni"  "$eni"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Internet Gateways"   "$igw"  "$igw"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "NAT Gateways"        "$nat"  "$nat"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "VPN Gateways"        "$vgw"  "$vgw"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Transit Gateways"    "$tgw"  "$tgw"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "VPN Connections"     "$vpnc" "$vpnc"
+  printf "  %-30s ${WHITE}%7d${NC} ${DIM}%7s${NC}\n"    "VPCs"                "$vpc"  "-"
+  printf "  %-30s ${WHITE}%7d${NC} ${DIM}%7s${NC}\n"    "Subnets"             "$subnet" "-"
+  printf "  %-30s ${WHITE}%7d${NC} ${DIM}%7s${NC}\n"    "Security Groups"     "$sg"   "-"
+  printf "  %-30s ${WHITE}%7d${NC} ${DIM}%7s${NC}\n"    "Route Tables"        "$rt"   "-"
+  divider
+  printf "  ${BOLD}%-30s %7d ${YELLOW}%7d${NC}\n" "REGION TOTAL" "$total" "$tokens"
 
-  # --- EC2 Instances ---
-  local json
-  json=$(aws_q "$r" ec2 describe-instances \
-    --filters "Name=instance-state-name,Values=pending,running,stopping,stopped" \
-    --query 'Reservations[].Instances[]')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    ec2=$(echo "$json" | jq 'length')
-    ec2_pub=$(echo "$json" | jq '[.[] | select(.PublicIpAddress != null)] | length')
-  fi
+  # Accumulate
+  R_EC2[$r]=$ec2;  R_EIP[$r]=$eip;  R_ENI[$r]=$eni;  R_IGW[$r]=$igw
+  R_NAT[$r]=$nat;  R_VGW[$r]=$vgw;  R_TGW[$r]=$tgw;  R_VPNC[$r]=$vpnc
+  R_VPC[$r]=$vpc;  R_SUBNET[$r]=$subnet; R_SG[$r]=$sg; R_RT[$r]=$rt
 
-  # --- Elastic IPs ---
-  json=$(aws_q "$r" ec2 describe-addresses --query 'Addresses')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    eip=$(echo "$json" | jq 'length')
-    eip_assoc=$(echo "$json" | jq '[.[] | select(.InstanceId != null or .NetworkInterfaceId != null)] | length')
-  fi
-
-  # --- ENIs ---
-  json=$(aws_q "$r" ec2 describe-network-interfaces --query 'NetworkInterfaces')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    eni=$(echo "$json" | jq 'length')
-    eni_pub=$(echo "$json" | jq '[.[] | select(.Association.PublicIp != null)] | length')
-  fi
-
-  # --- VPCs ---
-  json=$(aws_q "$r" ec2 describe-vpcs --query 'Vpcs')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    vpc=$(echo "$json" | jq 'length')
-  fi
-
-  # --- Subnets ---
-  json=$(aws_q "$r" ec2 describe-subnets --query 'Subnets')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    subnet=$(echo "$json" | jq 'length')
-  fi
-
-  # --- IGWs ---
-  json=$(aws_q "$r" ec2 describe-internet-gateways --query 'InternetGateways')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    igw=$(echo "$json" | jq 'length')
-  fi
-
-  # --- NAT Gateways ---
-  json=$(aws_q "$r" ec2 describe-nat-gateways \
-    --filter "Name=state,Values=pending,available" --query 'NatGateways')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    nat=$(echo "$json" | jq 'length')
-    nat_pub=$(echo "$json" | jq '[.[] | select(.NatGatewayAddresses[0].PublicIp != null)] | length')
-  fi
-
-  # --- VPN Gateways ---
-  json=$(aws_q "$r" ec2 describe-vpn-gateways \
-    --filters "Name=state,Values=pending,available" --query 'VpnGateways')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    vgw=$(echo "$json" | jq 'length')
-  fi
-
-  # --- Security Groups ---
-  json=$(aws_q "$r" ec2 describe-security-groups --query 'SecurityGroups')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    sg=$(echo "$json" | jq 'length')
-  fi
-
-  # --- Route Tables ---
-  json=$(aws_q "$r" ec2 describe-route-tables --query 'RouteTables')
-  if [[ -n "$json" ]] && [[ "$json" != "[]" ]] && [[ "$json" != "null" ]]; then
-    rt=$(echo "$json" | jq 'length')
-  fi
-
-  # --- Print region asset table ---
-  printf "\n  ${BOLD}%-28s %7s %14s${NC}\n" "Resource" "Count" "With Public IP"
-  printf "  %-28s %7s %14s\n" \
-    "$(printf '%0.s─' {1..28})" "$(printf '%0.s─' {1..7})" "$(printf '%0.s─' {1..14})"
-  printf "  %-28s ${WHITE}%7d${NC} ${YELLOW}%14d${NC}\n" "EC2 Instances"       "$ec2"    "$ec2_pub"
-  printf "  %-28s ${WHITE}%7d${NC} ${YELLOW}%14d${NC}  (associated)\n" "Elastic IPs"  "$eip"    "$eip_assoc"
-  printf "  %-28s ${WHITE}%7d${NC} ${YELLOW}%14d${NC}\n" "Network Interfaces"  "$eni"    "$eni_pub"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "VPCs"                "$vpc"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "Subnets"             "$subnet"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "Internet Gateways"   "$igw"
-  printf "  %-28s ${WHITE}%7d${NC} ${YELLOW}%14d${NC}\n" "NAT Gateways"        "$nat"    "$nat_pub"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "VPN Gateways"        "$vgw"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "Security Groups"     "$sg"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "Route Tables"        "$rt"
-  printf "  %-28s %7s %14s\n" \
-    "$(printf '%0.s─' {1..28})" "$(printf '%0.s─' {1..7})" "$(printf '%0.s─' {1..14})"
-
-  local region_total=$(( ec2 + eip + eni + vpc + subnet + igw + nat + vgw + sg + rt ))
-  local region_ips=$(( ec2_pub + eip_assoc + eni_pub + nat_pub ))
-  printf "  ${BOLD}%-28s %7d %14d${NC}\n" "REGION TOTAL" "$region_total" "$region_ips"
-
-  # --- Accumulate ---
-  T_EC2[$r]=$ec2;       T_EC2_PUB[$r]=$ec2_pub
-  T_EIP[$r]=$eip;       T_EIP_ASSOC[$r]=$eip_assoc
-  T_ENI[$r]=$eni;       T_ENI_PUB[$r]=$eni_pub
-  T_VPC[$r]=$vpc;       T_SUBNET[$r]=$subnet;   T_IGW[$r]=$igw
-  T_NAT[$r]=$nat;       T_NAT_PUB[$r]=$nat_pub; T_VGW[$r]=$vgw
-  T_SG[$r]=$sg;         T_RT[$r]=$rt
-
-  (( G_EC2 += ec2 ))           || true;  (( G_EC2_PUB += ec2_pub ))     || true
-  (( G_EIP += eip ))           || true;  (( G_EIP_ASSOC += eip_assoc )) || true
-  (( G_ENI += eni ))           || true;  (( G_ENI_PUB += eni_pub ))     || true
-  (( G_VPC += vpc ))           || true;  (( G_SUBNET += subnet ))       || true
-  (( G_IGW += igw ))           || true;  (( G_NAT += nat ))             || true
-  (( G_NAT_PUB += nat_pub ))   || true;  (( G_VGW += vgw ))            || true
-  (( G_SG += sg ))             || true;  (( G_RT += rt ))               || true
+  (( G_EC2 += ec2 ))     || true; (( G_EIP += eip ))       || true
+  (( G_ENI += eni ))     || true; (( G_IGW += igw ))       || true
+  (( G_NAT += nat ))     || true; (( G_VGW += vgw ))       || true
+  (( G_TGW += tgw ))     || true; (( G_VPNC += vpnc ))    || true
+  (( G_VPC += vpc ))     || true; (( G_SUBNET += subnet )) || true
+  (( G_SG += sg ))       || true; (( G_RT += rt ))         || true
 }
 
 # ============================================================
 # Global resources
 # ============================================================
 
+G_ZONES=0 G_BUCKETS=0
+
 scan_global() {
   header "Global Resources"
 
-  # --- Route53 ---
-  local r53_json zones zone_count=0
-  r53_json=$(aws --output json route53 list-hosted-zones 2>/dev/null || true)
-  zones=$(echo "$r53_json" | jq -r '.HostedZones // []' 2>/dev/null || echo "[]")
-  if [[ "$zones" != "[]" ]] && [[ "$zones" != "null" ]] && [[ -n "$zones" ]]; then
-    zone_count=$(echo "$zones" | jq 'length')
-  fi
-  printf "  Route53 Hosted Zones:  ${WHITE}%d${NC}\n" "$zone_count"
+  local tmpdir
+  tmpdir=$(mktemp -d)
 
-  # --- S3 ---
-  local s3_json buckets bucket_count=0
-  s3_json=$(aws --output json s3api list-buckets 2>/dev/null || true)
-  buckets=$(echo "$s3_json" | jq -r '.Buckets // []' 2>/dev/null || echo "[]")
-  if [[ "$buckets" != "[]" ]] && [[ "$buckets" != "null" ]] && [[ -n "$buckets" ]]; then
-    bucket_count=$(echo "$buckets" | jq 'length')
-  fi
-  printf "  S3 Buckets:            ${WHITE}%d${NC}\n" "$bucket_count"
+  # Parallel
+  (aws --output json route53 list-hosted-zones 2>/dev/null || echo '{"HostedZones":[]}') \
+    | jq '.HostedZones | length' > "$tmpdir/zones" &
+  (aws --output json s3api list-buckets 2>/dev/null || echo '{"Buckets":[]}') \
+    | jq '.Buckets | length' > "$tmpdir/buckets" &
+  wait
+
+  G_ZONES=$(cat "$tmpdir/zones" 2>/dev/null || echo 0)
+  G_BUCKETS=$(cat "$tmpdir/buckets" 2>/dev/null || echo 0)
+  rm -rf "$tmpdir"
+
+  printf "  Route53 Hosted Zones:  ${WHITE}%d${NC}\n" "$G_ZONES"
+  printf "  S3 Buckets:            ${WHITE}%d${NC}\n" "$G_BUCKETS"
 }
 
 # ============================================================
@@ -253,46 +184,44 @@ scan_global() {
 print_summary() {
   header "Grand Summary — All Regions"
 
-  # Per-region row: region | total assets | assets with IP
-  printf "\n  ${BOLD}%-18s %8s %14s${NC}\n" "Region" "Assets" "With Public IP"
-  printf "  %-18s %8s %14s\n" \
-    "$(printf '%0.s─' {1..18})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..14})"
+  printf "\n  ${BOLD}%-18s %8s %8s${NC}\n" "Region" "Assets" "Tokens"
+  printf "  %-18s %8s %8s\n" \
+    "$(printf '%0.s─' {1..18})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..8})"
 
   for r in "${SCAN_REGIONS[@]}"; do
-    local ra=$(( ${T_EC2[$r]:-0} + ${T_EIP[$r]:-0} + ${T_ENI[$r]:-0} + ${T_VPC[$r]:-0} \
-      + ${T_SUBNET[$r]:-0} + ${T_IGW[$r]:-0} + ${T_NAT[$r]:-0} + ${T_VGW[$r]:-0} \
-      + ${T_SG[$r]:-0} + ${T_RT[$r]:-0} ))
-    local ri=$(( ${T_EC2_PUB[$r]:-0} + ${T_EIP_ASSOC[$r]:-0} + ${T_ENI_PUB[$r]:-0} + ${T_NAT_PUB[$r]:-0} ))
-    printf "  %-18s ${WHITE}%8d${NC} ${YELLOW}%14d${NC}\n" "$r" "$ra" "$ri"
+    local tok=$(( ${R_EC2[$r]:-0} + ${R_EIP[$r]:-0} + ${R_ENI[$r]:-0} + ${R_IGW[$r]:-0} \
+      + ${R_NAT[$r]:-0} + ${R_VGW[$r]:-0} + ${R_TGW[$r]:-0} + ${R_VPNC[$r]:-0} ))
+    local all=$(( tok + ${R_VPC[$r]:-0} + ${R_SUBNET[$r]:-0} + ${R_SG[$r]:-0} + ${R_RT[$r]:-0} ))
+    printf "  %-18s ${WHITE}%8d${NC} ${YELLOW}%8d${NC}\n" "$r" "$all" "$tok"
   done
 
-  printf "  %-18s %8s %14s\n" \
-    "$(printf '%0.s─' {1..18})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..14})"
+  printf "  %-18s %8s %8s\n" \
+    "$(printf '%0.s─' {1..18})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..8})"
 
-  local grand_total=$(( G_EC2 + G_EIP + G_ENI + G_VPC + G_SUBNET + G_IGW + G_NAT + G_VGW + G_SG + G_RT ))
-  local grand_ips=$(( G_EC2_PUB + G_EIP_ASSOC + G_ENI_PUB + G_NAT_PUB ))
+  local grand_tok=$(( G_EC2 + G_EIP + G_ENI + G_IGW + G_NAT + G_VGW + G_TGW + G_VPNC ))
+  local grand_all=$(( grand_tok + G_VPC + G_SUBNET + G_SG + G_RT ))
 
-  printf "  ${BOLD}%-18s %8d %14d${NC}\n\n" "TOTAL" "$grand_total" "$grand_ips"
+  printf "  ${BOLD}%-18s %8d ${YELLOW}%8d${NC}\n\n" "TOTAL" "$grand_all" "$grand_tok"
 
-  # Breakdown by resource type
-  printf "  ${BOLD}%-28s %7s %14s${NC}\n" "Resource Type" "Count" "With Public IP"
-  printf "  %-28s %7s %14s\n" \
-    "$(printf '%0.s─' {1..28})" "$(printf '%0.s─' {1..7})" "$(printf '%0.s─' {1..14})"
-  printf "  %-28s ${WHITE}%7d${NC} ${YELLOW}%14d${NC}\n" "EC2 Instances"       "$G_EC2"    "$G_EC2_PUB"
-  printf "  %-28s ${WHITE}%7d${NC} ${YELLOW}%14d${NC}  (associated)\n" "Elastic IPs"  "$G_EIP"    "$G_EIP_ASSOC"
-  printf "  %-28s ${WHITE}%7d${NC} ${YELLOW}%14d${NC}\n" "Network Interfaces"  "$G_ENI"    "$G_ENI_PUB"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "VPCs"                "$G_VPC"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "Subnets"             "$G_SUBNET"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "Internet Gateways"   "$G_IGW"
-  printf "  %-28s ${WHITE}%7d${NC} ${YELLOW}%14d${NC}\n" "NAT Gateways"        "$G_NAT"    "$G_NAT_PUB"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "VPN Gateways"        "$G_VGW"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "Security Groups"     "$G_SG"
-  printf "  %-28s ${WHITE}%7d${NC}\n"                    "Route Tables"        "$G_RT"
-  printf "  %-28s %7s %14s\n" \
-    "$(printf '%0.s─' {1..28})" "$(printf '%0.s─' {1..7})" "$(printf '%0.s─' {1..14})"
-  printf "  ${BOLD}%-28s %7d %14d${NC}\n" "GRAND TOTAL" "$grand_total" "$grand_ips"
+  # Breakdown by type
+  printf "  ${BOLD}%-30s %7s %7s${NC}\n" "Token-Bearing Resource" "Count" "Tokens"
+  divider
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "EC2 Instances"       "$G_EC2"  "$G_EC2"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Elastic IPs"         "$G_EIP"  "$G_EIP"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Network Interfaces"  "$G_ENI"  "$G_ENI"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Internet Gateways"   "$G_IGW"  "$G_IGW"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "NAT Gateways"        "$G_NAT"  "$G_NAT"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "VPN Gateways"        "$G_VGW"  "$G_VGW"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "Transit Gateways"    "$G_TGW"  "$G_TGW"
+  printf "  %-30s ${WHITE}%7d${NC} ${YELLOW}%7d${NC}\n" "VPN Connections"     "$G_VPNC" "$G_VPNC"
+  divider
+  printf "  ${BOLD}%-30s %7d ${YELLOW}%7d${NC}\n\n" "TOTAL" "$grand_tok" "$grand_tok"
 
-  printf "\n  ${DIM}Estimated management tokens (IP-bearing assets): ${WHITE}%d${NC}\n" "$grand_ips"
+  printf "  ${DIM}Non-token assets: %d VPCs, %d Subnets, %d SGs, %d RTs${NC}\n" \
+    "$G_VPC" "$G_SUBNET" "$G_SG" "$G_RT"
+  printf "  ${DIM}Global: %d Route53 zones, %d S3 buckets${NC}\n" "$G_ZONES" "$G_BUCKETS"
+
+  printf "\n  ${BOLD}${WHITE}═══ Estimated Management Tokens: %d ═══${NC}\n" "$grand_tok"
 }
 
 # ============================================================
@@ -300,7 +229,7 @@ print_summary() {
 # ============================================================
 
 printf "${BOLD}AWS Resource Inventory — UAI3 Tech Summit${NC}\n"
-printf "${DIM}Scanning %d region(s)...${NC}\n" "${#SCAN_REGIONS[@]}"
+printf "${DIM}Scanning %d region(s) (parallel API calls)...${NC}\n" "${#SCAN_REGIONS[@]}"
 printf "${DIM}Started: $(date '+%Y-%m-%d %H:%M:%S %Z')${NC}\n"
 
 for region in "${SCAN_REGIONS[@]}"; do
